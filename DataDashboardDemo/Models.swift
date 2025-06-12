@@ -1,10 +1,9 @@
 import Foundation
 
 // Top‐level response matching CoinDesk JSON
-struct BitcoinHistoryResponse: Codable {
-    let bpi: [String: Double]
-    let disclaimer: String?
-    let time: TimeInfo?
+
+struct CoinGeckoRangeResponse: Codable {
+    let prices: [[Double]]   // [ [timestamp, price], … ]
 }
 
 struct TimeInfo: Codable {

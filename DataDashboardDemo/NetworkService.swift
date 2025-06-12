@@ -13,37 +13,50 @@ class NetworkService {
 
     /// Fetches Bitcoin historical prices from CoinDesk between `start` and `end` (format "YYYY-MM-DD")
     func fetchBitcoinHistory(start: String, end: String) async throws -> [DailyPrice] {
-        let urlString = "https://api.coindesk.com/v1/bpi/historical/close.json?start=\(start)&end=\(end)"
-        guard let url = URL(string: urlString) else {
-            throw NetworkError.badURL
+        // 1) Parse your “YYYY-MM-DD” start/end into UNIX timestamps
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard
+          let startDate = formatter.date(from: start),
+          let endDate   = formatter.date(from: end)
+        else {
+          throw NetworkError.badURL
+        }
+        let from = Int(startDate.timeIntervalSince1970)
+        // CoinGecko expects “to” > “from”, so add one day to include end date
+        let to   = Int(endDate.addingTimeInterval(60*60*24).timeIntervalSince1970)
+
+        // 2) Build URLComponents
+        var comps = URLComponents(string: "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range")!
+        comps.queryItems = [
+          URLQueryItem(name: "vs_currency", value: "usd"),
+          URLQueryItem(name: "from",        value: "\(from)"),
+          URLQueryItem(name: "to",          value: "\(to)")
+        ]
+        guard let url = comps.url else {
+          throw NetworkError.badURL
+        }
+        print("📡 Fetching: \(url)")
+
+        // 3) Perform request
+        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
+          throw NetworkError.invalidResponse
         }
 
-        do {
-            let (data, response) = try await URLSession.shared.data(from: url)
-            guard let httpResp = response as? HTTPURLResponse,
-                  (200...299).contains(httpResp.statusCode)
-            else {
-                throw NetworkError.invalidResponse
-            }
+        // 4) Decode into CoinGeckoRangeResponse
+        let decoded = try JSONDecoder().decode(CoinGeckoRangeResponse.self, from: data)
 
-            let decoder = JSONDecoder()
-            // The API’s dates are keys like "2024-01-01"; we’ll parse them manually below
-            let result = try decoder.decode(BitcoinHistoryResponse.self, from: data)
+        // 5) Map into [DailyPrice]
+        let daily: [DailyPrice] = decoded.prices.compactMap { pair in
+          // pair[0] = UNIX ms timestamp, pair[1] = price
+          let ms = pair[0]
+          let price = pair[1]
+          let date = Date(timeIntervalSince1970: ms / 1000.0)
+          return DailyPrice(date: date, price: price)
+        }
 
-            // Convert dictionary [String: Double] → [DailyPrice]
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd"
-            let dailyPrices: [DailyPrice] = result.bpi.compactMap { (dateString, value) in
-                guard let date = dateFormatter.date(from: dateString) else { return nil }
-                return DailyPrice(date: date, price: value)
-            }
-            return dailyPrices.sorted { $0.date < $1.date }
-        }
-        catch let decodeErr as DecodingError {
-            throw NetworkError.decodingFailed(decodeErr)
-        }
-        catch {
-            throw NetworkError.requestFailed(error)
-        }
+        // 6) Sort by date
+        return daily.sorted { $0.date < $1.date }
     }
 }
