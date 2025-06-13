@@ -4,37 +4,35 @@ import SwiftUI
 @MainActor
 class DashboardViewModel: ObservableObject {
     @Published var dailyPrices: [DailyPrice] = []
-    @Published var isLoading: Bool = false
+    @Published var isLoading = false
     @Published var errorMessage: String? = nil
 
     @Published var latestPrice: Double?
     @Published var highestPrice: Double?
     @Published var lowestPrice: Double?
+    @Published var percentChange: Double?
 
     @Published var selectedStartDate: Date
     @Published var selectedEndDate: Date
 
     private let displayFormatter: DateFormatter = {
-        let fmt = DateFormatter()
-        fmt.dateStyle = .medium
-        return fmt
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        return f
     }()
 
     init() {
-        // Default: last 30 days
         let now = Date()
         self.selectedEndDate = now
-        self.selectedStartDate = Calendar.current.date(byAdding: .day, value: -30, to: now) ?? now
-
-        // Fetch immediately
-        Task {
-            await loadData()
-        }
+        self.selectedStartDate = Calendar.current
+            .date(byAdding: .day, value: -30, to: now) ?? now
+        Task { await loadData() }
     }
 
     private func isoDateString(from date: Date) -> String {
         let fmt = DateFormatter()
         fmt.dateFormat = "yyyy-MM-dd"
+        fmt.timeZone = TimeZone(secondsFromGMT: 0)
         return fmt.string(from: date)
     }
 
@@ -43,10 +41,11 @@ class DashboardViewModel: ObservableObject {
         errorMessage = nil
 
         let startStr = isoDateString(from: selectedStartDate)
-        let endStr = isoDateString(from: selectedEndDate)
+        let endStr   = isoDateString(from: selectedEndDate)
 
         do {
-            let fetched = try await NetworkService.shared.fetchBitcoinHistory(start: startStr, end: endStr)
+            let fetched = try await NetworkService.shared
+                .fetchBitcoinHistory(start: startStr, end: endStr)
             dailyPrices = fetched
             calculateSummaries()
         } catch {
@@ -55,19 +54,27 @@ class DashboardViewModel: ObservableObject {
             latestPrice = nil
             highestPrice = nil
             lowestPrice = nil
+            percentChange = nil
         }
 
         isLoading = false
     }
 
-    private func calculateSummaries() {
+    func calculateSummaries() {
         guard !dailyPrices.isEmpty else { return }
-        latestPrice = dailyPrices.last?.price
-        highestPrice = dailyPrices.map { $0.price }.max()
-        lowestPrice = dailyPrices.map { $0.price }.min()
+        latestPrice  = dailyPrices.last?.price
+        highestPrice = dailyPrices.map(\.price).max()
+        lowestPrice  = dailyPrices.map(\.price).min()
+
+        if
+            let first = dailyPrices.first?.price,
+            let last  = dailyPrices.last?.price
+        {
+            percentChange = (last - first) / first * 100
+        }
     }
 
-    func formatted(date: Date) -> String {
+    func formatted(_ date: Date) -> String {
         displayFormatter.string(from: date)
     }
 }

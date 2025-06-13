@@ -1,18 +1,13 @@
 import Foundation
 
-// Top‐level response matching CoinDesk JSON
-
 struct CoinGeckoRangeResponse: Codable {
-    let prices: [[Double]]   // [ [timestamp, price], … ]
+    let prices: [[Double]]
+    let market_caps: [[Double]]?
+    let total_volumes: [[Double]]?
 }
 
-struct TimeInfo: Codable {
-    let updated: String
-    let updatedISO: String
-}
-
-// Parsed form to feed into Swift Charts
-struct DailyPrice: Identifiable {
+/// Conform to Equatable so `Array<DailyPrice>` is Equatable and animations work
+struct DailyPrice: Identifiable, Equatable {
     let id = UUID()
     let date: Date
     let price: Double
